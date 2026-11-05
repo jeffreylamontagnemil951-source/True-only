@@ -12,14 +12,16 @@ class HttpError extends Error{constructor(message,status=400){super(message);thi
 async function verifyAccess(request,env){
   const token=request.headers.get("Cf-Access-Jwt-Assertion");
   if(!token||!env.ACCESS_TEAM_DOMAIN||!env.ACCESS_AUD)throw new HttpError("School sign-in is required",401);
+  if(token.length>16384)throw new HttpError("Access token is too large",401);
   const parts=token.split(".");if(parts.length!==3)throw new HttpError("Invalid Access token",401);
   let header,claims;try{header=JSON.parse(new TextDecoder().decode(b64url(parts[0])));claims=JSON.parse(new TextDecoder().decode(b64url(parts[1])))}catch{throw new HttpError("Invalid Access token",401)}
-  const issuer="https://"+env.ACCESS_TEAM_DOMAIN;
-  if(claims.iss!==issuer||!(Array.isArray(claims.aud)?claims.aud:[claims.aud]).includes(env.ACCESS_AUD)||!claims.sub||claims.exp<Date.now()/1000)throw new HttpError("Access token claims rejected",401);
+  const issuer="https://"+env.ACCESS_TEAM_DOMAIN,clock=Date.now()/1000;
+  const audiences=Array.isArray(claims.aud)?claims.aud:[claims.aud];
+  if(header.alg!=="RS256"||typeof header.kid!=="string"||claims.iss!==issuer||!audiences.includes(env.ACCESS_AUD)||typeof claims.sub!=="string"||!claims.sub||!Number.isFinite(claims.exp)||claims.exp<=clock||(claims.nbf!==undefined&&(!Number.isFinite(claims.nbf)||claims.nbf>clock)))throw new HttpError("Access token claims rejected",401);
   const response=await fetch(issuer+"/cdn-cgi/access/certs");
   if(!response.ok)throw new HttpError("Identity verification is temporarily unavailable",503);
   const keys=(await response.json()).keys||[],jwk=keys.find(k=>k.kid===header.kid);
-  if(!jwk||header.alg!=="RS256")throw new HttpError("Untrusted signing key",401);
+  if(!jwk)throw new HttpError("Untrusted signing key",401);
   const key=await crypto.subtle.importKey("jwk",jwk,{name:"RSASSA-PKCS1-v1_5",hash:"SHA-256"},false,["verify"]);
   const valid=await crypto.subtle.verify("RSASSA-PKCS1-v1_5",key,b64url(parts[2]),new TextEncoder().encode(parts[0]+"."+parts[1]));
   if(!valid)throw new HttpError("Access signature rejected",401);
