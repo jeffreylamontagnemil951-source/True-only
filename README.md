@@ -9,7 +9,7 @@ A privacy-first school directory and staff support workspace built with Cloudfla
 - Account `workers.dev` subdomain confirmed as `growref-admin`.
 - Worker is configured to use `workers.dev`, but **has not been deployed**.
 - D1 schema migrations have **not** been applied.
-- Cloudflare Access tenant domain is configured; a dedicated TrueOnly Access application and staff allow-list still need setup.
+- Dedicated TrueOnly Cloudflare Access application created in default-deny mode; approved staff identity provider and allow-list still need setup.
 - Use synthetic records only. Do not enter real student information.
 
 ## Hosting address
@@ -45,11 +45,12 @@ The D1 database exists but is empty. Migrations are applied by the manual deploy
 
 1. Create a dedicated Cloudflare Access application for the expected `workers.dev` hostname.
 2. Configure a restrictive allow policy for verified, authorized school staff only. Do not use an Everyone policy.
-3. Set the Access audience value in `wrangler.jsonc` to the value for the TrueOnly Access application.
+3. Add an approved identity provider and staff-only allow policy to the TrueOnly Access application. Its AUD value is already configured in `wrangler.jsonc`.
 4. Create the initial school and Super Admin records using the documented secure bootstrap procedure and verified identity subject.
 5. Add GitHub repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` with least-privilege access.
 6. Complete school authorization, safeguarding, privacy, legal and independent security reviews.
-7. Run the manual deployment workflow only after all checks are complete.
+7. Change `ACCESS_POLICY_READY` to `true` in `wrangler.jsonc` only after the staff allow policy is reviewed.
+8. Run the manual deployment workflow only after all checks are complete.
 
 The deployment workflow is manual only; pushes to `main` do not deploy.
 
