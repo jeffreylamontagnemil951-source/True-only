@@ -1,57 +1,66 @@
-# Cloudflare domain and hosting setup
+# Cloudflare hosting and connection
 
-TrueOnly will use Cloudflare's free `workers.dev` subdomain for its initial development hostname. **Do not buy a domain or register a paid `.dev` domain for this setup.**
+TrueOnly uses the free Cloudflare `workers.dev` hostname for its initial development deployment. **No paid domain is required.**
 
-## Free hostname
+## Connected Cloudflare resources
 
-Cloudflare Workers accounts include a configurable `workers.dev` subdomain. Each Worker receives an address in this format:
+The Cloudflare account connection was verified. The account's existing Workers subdomain is:
 
-`https://<YOUR_WORKER_NAME>.<YOUR_ACCOUNT_SUBDOMAIN>.workers.dev`
+`growref-admin.workers.dev`
 
-For this repository, the Worker name in `wrangler.jsonc` is `trueonly-student-finder`, so the eventual URL format is:
+The TrueOnly Worker name in `wrangler.jsonc` is `trueonly-student-finder`. Its expected URL after deployment is:
 
-`https://trueonly-student-finder.<YOUR_ACCOUNT_SUBDOMAIN>.workers.dev`
+`https://trueonly-student-finder.growref-admin.workers.dev`
 
-The account subdomain must be selected or confirmed in the Cloudflare dashboard. The exact URL is not active until the Worker is deployed. A `workers.dev` address is a Cloudflare-provided subdomain, not a registered `.dev` domain.
+This hostname is not active until the Worker is deployed.
 
-## Configure the account subdomain
+A dedicated D1 database named `trueonly-db` has been created and its UUID is connected in `wrangler.jsonc`. The database currently has no schema; migrations have not yet been applied.
 
-1. Sign in to the Cloudflare dashboard.
-2. Open **Workers & Pages**.
-3. Find **Your subdomain** and choose **Change** if you want to set or change the account subdomain.
-4. Choose an available subdomain and save it.
-5. Keep the Worker name as `trueonly-student-finder` unless the project configuration is deliberately changed.
+## Cloudflare Access
+
+The connected Zero Trust tenant is:
+
+`wandering-bar-0ae9.cloudflareaccess.com`
+
+This tenant domain is configured as `ACCESS_TEAM_DOMAIN` in Wrangler. The TrueOnly-specific Access application and its audience value are not yet configured.
+
+Before deployment:
+
+1. In Cloudflare Zero Trust, create a self-hosted Access application for `trueonly-student-finder.growref-admin.workers.dev`.
+2. Create an allow policy limited to verified school staff identities. Do not select Everyone or broadly allow all account users.
+3. Enable MFA where available and choose a reasonable session duration.
+4. Copy the application's AUD tag into `ACCESS_AUD` in `wrangler.jsonc`.
+5. Confirm unauthenticated users are denied and only approved staff can sign in.
+6. Ensure each approved identity has an active administrator record in D1, scoped to the correct school.
+
+The account's existing identity provider is restricted to Cloudflare account members. Do not assume that this automatically covers school staff; choose and test an identity method appropriate for the school before allowing access.
 
 Official guide: https://developers.cloudflare.com/workers/configuration/routing/workers-dev/
 
-## Protect the application
+## Database and bindings
 
-A `workers.dev` address can be publicly reachable. Before exposing any application data:
+The D1 database binding is `DB`. The Worker also declares the static assets binding `ASSETS` and Durable Object binding `SUPPORT_ROOMS`.
 
-1. Configure a Cloudflare Access application and an allow-list policy for approved school staff.
-2. Confirm that Access protects the Worker hostname and that unauthenticated requests cannot reach protected application routes.
-3. Set `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` in the Worker configuration to the exact values for that Access application.
-4. Create the initial administrator using the immutable identity subject from the approved identity provider.
-5. Test with synthetic accounts for each role and verify school-level data isolation.
+The manual deployment workflow applies the checked-in migrations before deploying. Do not apply schema migrations manually outside the workflow unless the migration history is tracked consistently.
 
-Cloudflare documents Access protection for `workers.dev` hostnames here: https://developers.cloudflare.com/workers/configuration/routing/workers-dev/
+## Manual deployment
 
-## D1 and Worker configuration
+The workflow at `.github/workflows/deploy.yml` is triggered manually from GitHub Actions. Before using it:
 
-1. Create the D1 database named `trueonly-db`.
-2. Replace `REPLACE_WITH_D1_DATABASE_ID` in `wrangler.jsonc` with the actual database ID.
-3. Apply migrations with `npx wrangler d1 migrations apply trueonly-db --remote`.
-4. Confirm the `DB`, `ASSETS`, and `SUPPORT_ROOMS` bindings are present.
-5. Configure the Access variables with actual values; do not leave placeholder strings in a live deployment.
+1. Add repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+2. The API token should have only the account permissions needed for Workers Scripts and D1 database operations.
+3. Configure the dedicated Access app and set `ACCESS_AUD` in `wrangler.jsonc`.
+4. Add the initial school and Super Admin using the secure bootstrap procedure.
+5. Complete school authorization, safeguarding, privacy and independent security checks.
+6. Run the manual workflow only when the deployment is approved.
 
-## Production and student-data safeguards
+No Worker has been deployed by this setup. The D1 database is currently empty and no real student data should be entered.
 
-Cloudflare describes `workers.dev` as intended for personal or hobby projects, not business-critical production. Before real student data is considered, an authorized school must decide whether this hosting choice is appropriate and complete privacy, safeguarding, legal, and security reviews. A future custom domain may be considered only if the school authorizes it; it is not required for this initial development setup.
+## Important safeguards
 
 - Use synthetic test records only during development.
-- Keep school-level authorization enforced server-side.
-- Do not enable student-to-student private messaging.
-- Private attachments are not implemented. Do not create a public R2 bucket or public attachment URLs.
-- Never commit credentials, student records, real student photos, or production database exports.
-
-No domain has been registered, no Worker has been deployed, and no Cloudflare resources have been provisioned by this documentation change.
+- Enforce school-level authorization server-side.
+- Student-to-student messaging is disabled.
+- Private file attachments are not implemented; do not create public R2 buckets or public object URLs.
+- Keep credentials and student records out of GitHub.
+- Cloudflare's `workers.dev` hostname is appropriate for development and hobby use, not a guarantee of suitability for business-critical student information systems.
