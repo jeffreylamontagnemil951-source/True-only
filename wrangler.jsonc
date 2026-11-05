@@ -34,7 +34,7 @@
     }
   },
   "vars": {
-    "ACCESS_TEAM_DOMAIN": "REPLACE_WITH_ACCESS_TEAM_DOMAIN",
+    "ACCESS_TEAM_DOMAIN": "wandering-bar-0ae9.cloudflareaccess.com",
     "ACCESS_AUD": "REPLACE_WITH_ACCESS_AUDIENCE"
   }
 }
