@@ -7,13 +7,15 @@
   "assets": {
     "directory": "./public",
     "binding": "ASSETS",
-    "run_worker_first": ["/api/*"]
+    "run_worker_first": [
+      "/api/*"
+    ]
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "trueonly-db",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID",
+      "database_id": "d9b8f073-1502-4012-8eda-3345860df922",
       "migrations_dir": "migrations"
     }
   ],
