@@ -50,7 +50,7 @@ async function bodyOf(request){
   if(declared>16384)throw new HttpError("Request body is too large",413);
   const raw=await request.text();
   if(new TextEncoder().encode(raw).byteLength>16384)throw new HttpError("Request body is too large",413);
-  const b=JSON.parse(raw||"null");
+  let b;try{b=JSON.parse(raw||"null")}catch{throw new HttpError("A valid JSON object is required")}
   if(!b||typeof b!=="object"||Array.isArray(b))throw new HttpError("A valid JSON object is required");
   return b;
 }
