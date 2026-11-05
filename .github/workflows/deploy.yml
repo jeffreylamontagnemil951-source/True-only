@@ -39,6 +39,9 @@ jobs:
           if (!config.vars?.ACCESS_AUD || config.vars.ACCESS_AUD.includes('REPLACE_WITH')) {
             throw new Error('Create the TrueOnly Access application and set ACCESS_AUD before deployment');
           }
+          if (config.vars?.ACCESS_POLICY_READY !== 'true') {
+            throw new Error('Do not deploy until the TrueOnly Access allow-list policy has been configured and reviewed');
+          }
           NODE
           test -n "${CLOUDFLARE_API_TOKEN}"
           test -n "${CLOUDFLARE_ACCOUNT_ID}"
