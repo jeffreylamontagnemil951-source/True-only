@@ -1,18 +1,20 @@
 # TrueOnly Student Finder
 
-A privacy-first school directory and staff support workspace built for Cloudflare Workers, D1 and Durable Objects. Private R2 storage is reserved for a future attachment feature.
+A privacy-first school directory and staff support workspace built for Cloudflare Workers, D1 and Durable Objects. The application is designed to use a domain managed and registered through Cloudflare when a custom domain is ready.
 
 ## Status
 
-Initial implementation scaffold. Do not use with real student records until an authorized school has completed the privacy, safeguarding and security review and configured identity access.
+Development scaffold. Do not use with real student records until an authorized school has completed privacy, safeguarding and security reviews and configured identity access. No Cloudflare resources have been provisioned and no deployment has been performed.
 
 ## Stack
 
 - Cloudflare Worker API and static frontend
 - Cloudflare D1 for relational records
-- Durable Objects for per-ticket real-time notifications\n- R2 attachments are not implemented or bound yet
+- Durable Objects for per-ticket real-time notifications
 - Cloudflare Access for identity-gated access
+- Cloudflare Registrar for the intended custom-domain registration
 - GitHub for source control and CI
+- Private R2 attachments are not implemented or bound
 
 ## Local checks
 
@@ -22,12 +24,16 @@ npm test
 
 ## Cloudflare setup
 
-1. Create a D1 database and apply `migrations/0001_initial_schema.sql`.
-2. Create a private R2 bucket for approved profile images and support attachments.
-3. Configure the Worker bindings named `DB` and `PRIVATE_FILES`.
-4. Configure Cloudflare Access for the application hostname. Set Worker variables `ACCESS_TEAM_DOMAIN` (for example, `school.cloudflareaccess.com`) and `ACCESS_AUD` (the Access application audience tag).
-5. Create an initial administrator record in D1 using the immutable identity subject from your Access identity provider. Assign only the minimum required role.
-6. Deploy the Worker and static assets using the current Cloudflare dashboard or the Cloudflare CLI workflow for your account.
+Read [Cloudflare domain and hosting setup](docs/CLOUDFLARE_DOMAIN.md) before configuring a public hostname.
+
+1. Register the chosen domain through Cloudflare Registrar, or use the account's Cloudflare-managed `workers.dev` hostname temporarily for non-production testing.
+2. Create a D1 database and set its ID in `wrangler.jsonc`.
+3. Apply all migrations with `npx wrangler d1 migrations apply trueonly-db --remote`.
+4. Configure the Worker bindings declared in `wrangler.jsonc`: `DB`, `ASSETS`, and `SUPPORT_ROOMS`.
+5. Configure Cloudflare Access for the application hostname. Set `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` to the values from the Access application.
+6. Create an initial administrator record in D1 using the immutable identity subject from the approved identity provider. Assign only the minimum required role.
+7. Attach the custom domain to the Worker using Workers & Pages → your Worker → Settings → Domains & Routes → Add → Custom Domain.
+8. Complete safeguarding, privacy, authorization, and security reviews before any production deployment.
 
 Never commit API tokens, Access secrets, student information, real student photos, or production database exports. Do not create public object URLs for future private attachments.
 
