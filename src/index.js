@@ -149,8 +149,8 @@ async function supportApi(request,env,user,url){
   throw new HttpError("Support route not found",404);
 }
 async function handleApi(request,env){
-  if(!env.DB)throw new HttpError("D1 database binding DB is not configured",503);
   const url=new URL(request.url);if(url.pathname==="/api/health"&&request.method==="GET")return json({ok:true,service:"trueonly-api"});
+  if(!env.DB)throw new HttpError("D1 database binding DB is not configured",503);
   const user=await actorFor(request,env);
   if(url.pathname==="/api/me"&&request.method==="GET")return json({id:user.id,display_name:user.display_name,role:user.role,school_id:user.school_id});
   if(url.pathname.startsWith("/api/students"))return studentsApi(request,env,user,url);
