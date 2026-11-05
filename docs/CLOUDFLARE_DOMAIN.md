@@ -1,50 +1,57 @@
 # Cloudflare domain and hosting setup
 
-TrueOnly's intended public hostname must be managed through Cloudflare. Do not point the project to a third-party hosting provider.
+TrueOnly will use Cloudflare's free `workers.dev` subdomain for its initial development hostname. **Do not buy a domain or register a paid `.dev` domain for this setup.**
 
-## Domain choice
+## Free hostname
 
-There are two Cloudflare-hosted address paths:
+Cloudflare Workers accounts include a configurable `workers.dev` subdomain. Each Worker receives an address in this format:
 
-- **Temporary testing:** Cloudflare provides a `workers.dev` subdomain for a Worker. It is useful for development, but it is not a custom domain registered in your name and Cloudflare describes it as intended for personal or hobby projects.
-- **Long-term custom domain:** register a domain using Cloudflare Registrar. The domain must be available and supported, and registration requires a verified Cloudflare account email, accurate registrant contact details, and a valid payment method. Domain registration and renewal are paid services; the price and supported term are shown in the Cloudflare dashboard before purchase.
+`https://<YOUR_WORKER_NAME>.<YOUR_ACCOUNT_SUBDOMAIN>.workers.dev`
 
-A custom domain bought through Cloudflare Registrar automatically uses Cloudflare nameservers. Cloudflare Registrar does not currently support internationalized domain names. Domain registration is a paid, account-level action; have a parent or guardian handle the purchase and account billing where required. Do not put personal contact details in this repository.
+For this repository, the Worker name in `wrangler.jsonc` is `trueonly-student-finder`, so the eventual URL format is:
 
-## Registering through Cloudflare
+`https://trueonly-student-finder.<YOUR_ACCOUNT_SUBDOMAIN>.workers.dev`
 
-1. Open the Cloudflare dashboard and sign in to the account that will own the domain.
-2. Open **Domain Registration → Register Domains**.
-3. Search for the exact domain name and review the available extensions, registration term, and displayed price.
-4. Confirm the domain is available, then have the account owner complete registration and email verification.
-5. Keep the domain in the same Cloudflare account that manages the TrueOnly Worker.
+The account subdomain must be selected or confirmed in the Cloudflare dashboard. The exact URL is not active until the Worker is deployed. A `workers.dev` address is a Cloudflare-provided subdomain, not a registered `.dev` domain.
 
-Official guide: https://developers.cloudflare.com/registrar/get-started/register-domain/
+## Configure the account subdomain
 
-## Connect the domain to TrueOnly
+1. Sign in to the Cloudflare dashboard.
+2. Open **Workers & Pages**.
+3. Find **Your subdomain** and choose **Change** if you want to set or change the account subdomain.
+4. Choose an available subdomain and save it.
+5. Keep the Worker name as `trueonly-student-finder` unless the project configuration is deliberately changed.
 
-After a Worker exists and the domain is active in the Cloudflare account:
+Official guide: https://developers.cloudflare.com/workers/configuration/routing/workers-dev/
 
-1. Open **Workers & Pages** in the Cloudflare dashboard.
-2. Select the TrueOnly Worker.
-3. Open **Settings → Domains & Routes → Add → Custom Domain**.
-4. Enter the chosen hostname, for example `app.your-domain.example`, and add it.
-5. Cloudflare creates the DNS record and provisions the required certificate. Wait until the hostname and certificate are active before testing it.
-6. If the app should only be available at the custom hostname, review the Worker's `workers.dev` endpoint and disable it after verifying the custom domain and Cloudflare Access protection. Otherwise the temporary hostname could become an alternate entry point.
+## Protect the application
 
-Official guide: https://developers.cloudflare.com/workers/configuration/routing/custom-domains/
+A `workers.dev` address can be publicly reachable. Before exposing any application data:
 
-## Access and student-data safeguards
+1. Configure a Cloudflare Access application and an allow-list policy for approved school staff.
+2. Confirm that Access protects the Worker hostname and that unauthenticated requests cannot reach protected application routes.
+3. Set `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` in the Worker configuration to the exact values for that Access application.
+4. Create the initial administrator using the immutable identity subject from the approved identity provider.
+5. Test with synthetic accounts for each role and verify school-level data isolation.
 
-- Protect the application hostname with Cloudflare Access and verify the Worker validates the Access JWT.
-- Configure the Access policy before exposing any real school information.
-- Use the correct Access team domain and application audience tag in Worker variables.
-- Test authorization using non-real test accounts and synthetic records only.
-- Do not use real student data until the school has authorized the service and completed its safeguarding, privacy, and security review.
-- Student-to-student messaging and file attachments remain out of scope. Do not create a public R2 bucket or public attachment URLs.
+Cloudflare documents Access protection for `workers.dev` hostnames here: https://developers.cloudflare.com/workers/configuration/routing/workers-dev/
 
-## Repository configuration
+## D1 and Worker configuration
 
-The Wrangler file intentionally does not contain a made-up domain name. Add a Custom Domain through the Cloudflare dashboard only after the actual domain is registered and the Worker is ready. Do not commit credentials, account IDs that should remain private, or personal registrant information.
+1. Create the D1 database named `trueonly-db`.
+2. Replace `REPLACE_WITH_D1_DATABASE_ID` in `wrangler.jsonc` with the actual database ID.
+3. Apply migrations with `npx wrangler d1 migrations apply trueonly-db --remote`.
+4. Confirm the `DB`, `ASSETS`, and `SUPPORT_ROOMS` bindings are present.
+5. Configure the Access variables with actual values; do not leave placeholder strings in a live deployment.
+
+## Production and student-data safeguards
+
+Cloudflare describes `workers.dev` as intended for personal or hobby projects, not business-critical production. Before real student data is considered, an authorized school must decide whether this hosting choice is appropriate and complete privacy, safeguarding, legal, and security reviews. A future custom domain may be considered only if the school authorizes it; it is not required for this initial development setup.
+
+- Use synthetic test records only during development.
+- Keep school-level authorization enforced server-side.
+- Do not enable student-to-student private messaging.
+- Private attachments are not implemented. Do not create a public R2 bucket or public attachment URLs.
+- Never commit credentials, student records, real student photos, or production database exports.
 
 No domain has been registered, no Worker has been deployed, and no Cloudflare resources have been provisioned by this documentation change.
