@@ -43,7 +43,17 @@ async function audit(env,user,action,entityType,entityId,details={}){
   await env.DB.prepare("INSERT INTO audit_log(actor_id,action,entity_type,entity_id,details_json,created_at) VALUES(?,?,?,?,?,?)").bind(user.id,action,entityType,entityId,JSON.stringify(details),now()).run();
 }
 const clean=(v,max=120)=>typeof v==="string"?v.trim().slice(0,max):"";
-async function bodyOf(request){const b=await request.json().catch(()=>null);if(!b||typeof b!=="object"||Array.isArray(b))throw new HttpError("A valid JSON object is required");return b}
+async function bodyOf(request){
+  const contentType=(request.headers.get("content-type")||"").split(";")[0].trim().toLowerCase();
+  if(contentType!=="application/json")throw new HttpError("Content-Type must be application/json",415);
+  const declared=Number(request.headers.get("content-length")||0);
+  if(declared>16384)throw new HttpError("Request body is too large",413);
+  const raw=await request.text();
+  if(new TextEncoder().encode(raw).byteLength>16384)throw new HttpError("Request body is too large",413);
+  const b=JSON.parse(raw||"null");
+  if(!b||typeof b!=="object"||Array.isArray(b))throw new HttpError("A valid JSON object is required");
+  return b;
+}
 async function studentsApi(request,env,user,url){
   const method=request.method,parts=url.pathname.split("/").filter(Boolean),studentId=parts[2]?decodeURIComponent(parts[2]):null;
   if(method==="GET"&&!studentId){
@@ -199,6 +209,10 @@ async function supportApi(request,env,user,url){
 }
 async function handleApi(request,env){
   const url=new URL(request.url);if(url.pathname==="/api/health"){if(request.method!=="GET")throw new HttpError("Method not allowed",405);return json({ok:true,service:"trueonly-api"});}
+  if(["POST","PUT","PATCH","DELETE"].includes(request.method)){
+    const origin=request.headers.get("Origin");
+    if(!origin||origin!==url.origin||request.headers.get("Sec-Fetch-Site")==="cross-site")throw new HttpError("Cross-origin requests are not allowed",403);
+  }
   if(!env.DB)throw new HttpError("D1 database binding DB is not configured",503);
   const user=await actorFor(request,env);
   if(url.pathname==="/api/me"&&request.method==="GET")return json({id:user.id,display_name:user.display_name,role:user.role,school_id:user.school_id});
