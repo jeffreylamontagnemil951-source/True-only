@@ -1,46 +1,60 @@
 # TrueOnly Student Finder
 
-A privacy-first school directory and staff support workspace built for Cloudflare Workers, D1 and Durable Objects.
+A privacy-first school directory and staff support workspace built with Cloudflare Workers, D1, Durable Objects and Cloudflare Access.
 
-## Status
+## Current status
 
-Development scaffold. Do not use with real student records until an authorized school has completed privacy, safeguarding and security reviews and configured identity access. No Cloudflare resources have been provisioned and no deployment has been performed.
+- Cloudflare account connection verified.
+- Cloudflare D1 database `trueonly-db` created and its ID connected in `wrangler.jsonc`.
+- Account `workers.dev` subdomain confirmed as `growref-admin`.
+- Worker is configured to use `workers.dev`, but **has not been deployed**.
+- D1 schema migrations have **not** been applied.
+- Cloudflare Access tenant domain is configured; a dedicated TrueOnly Access application and staff allow-list still need setup.
+- Use synthetic records only. Do not enter real student information.
+
+## Hosting address
+
+After a safe deployment, the expected URL is:
+
+`https://trueonly-student-finder.growref-admin.workers.dev`
+
+This is a Cloudflare-provided `workers.dev` subdomain. No paid domain is needed.
 
 ## Stack
 
 - Cloudflare Worker API and static frontend
-- Cloudflare D1 for relational records
-- Durable Objects for per-ticket real-time notifications
-- Cloudflare Access for identity-gated access
-- Cloudflare `workers.dev` subdomain for the initial free hostname
-- GitHub for source control and CI
-- Private R2 attachments are not implemented or bound
+- Cloudflare D1 relational database
+- SQLite-backed Durable Objects for per-ticket real-time notifications
+- Cloudflare Access for identity-gated staff sign-in
+- GitHub Actions for tests and manual deployment
+- No public file storage or student-to-student private messaging
 
-## Local checks
+## Checks
 
 ```sh
 npm test
 ```
 
-## Cloudflare setup
+GitHub Actions runs the test suite on pushes to `main` and pull requests.
 
-Read [Cloudflare domain and hosting setup](docs/CLOUDFLARE_DOMAIN.md) before configuring a hostname.
+## Cloudflare deployment readiness
 
-1. Use the account's Cloudflare-managed `workers.dev` subdomain; no domain purchase is required for this initial setup.
-2. Create a D1 database and set its ID in `wrangler.jsonc`.
-3. Apply all migrations with `npx wrangler d1 migrations apply trueonly-db --remote`.
-4. Configure the Worker bindings declared in `wrangler.jsonc`: `DB`, `ASSETS`, and `SUPPORT_ROOMS`.
-5. Configure Cloudflare Access to protect the Worker hostname. Set `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` to the values from the Access application.
-6. Create an initial administrator record in D1 using the immutable identity subject from the approved identity provider. Assign only the minimum required role.
-7. Confirm the Access policy protects the `workers.dev` hostname and test with synthetic accounts before any public use.
-8. Complete safeguarding, privacy, authorization, and security reviews before any production deployment.
+Read [Cloudflare setup](docs/CLOUDFLARE_DOMAIN.md) and [Security baseline](docs/SECURITY.md).
 
-The Worker name is currently `trueonly-student-finder`. Once deployed and the account subdomain is configured, the URL format will be:
+The D1 database exists but is empty. Migrations are applied by the manual deployment workflow. Before deploying:
 
-`https://trueonly-student-finder.<YOUR_ACCOUNT_SUBDOMAIN>.workers.dev`
+1. Create a dedicated Cloudflare Access application for the expected `workers.dev` hostname.
+2. Configure a restrictive allow policy for verified, authorized school staff only. Do not use an Everyone policy.
+3. Set the Access audience value in `wrangler.jsonc` to the value for the TrueOnly Access application.
+4. Create the initial school and Super Admin records using the documented secure bootstrap procedure and verified identity subject.
+5. Add GitHub repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` with least-privilege access.
+6. Complete school authorization, safeguarding, privacy, legal and independent security reviews.
+7. Run the manual deployment workflow only after all checks are complete.
 
-Never commit API tokens, Access secrets, student information, real student photos, or production database exports. Do not create public object URLs for future private attachments.
+The deployment workflow is manual only; pushes to `main` do not deploy.
 
-## Important
+## Student safety and privacy
 
-Cloudflare describes `workers.dev` as suitable for personal or hobby projects rather than business-critical production. This repository is a starting implementation, not a certified student information system. Student data is sensitive, especially information about minors. Obtain school authorization, establish a lawful basis and consent process where required, minimize collected data, set retention rules, and test access controls before production use.
+This is a development implementation, not a certified student information system. Student records are sensitive, especially when they concern minors. Obtain school authorization, establish an appropriate lawful basis and consent process, minimize collected data, define retention and deletion rules, and independently test access controls before any real-world use.
+
+Never commit API tokens, Access secrets, student information, real student photos, or production database exports. Private attachments and student-to-student direct messaging are not implemented.
