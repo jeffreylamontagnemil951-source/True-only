@@ -5,6 +5,7 @@
 - The database role is looked up server-side. A verification badge is not an authorization role.
 - Keep R2 private. Add short-lived authorized download handlers before enabling uploads or downloads.
 - Use prepared SQL statements, bounded search input and pagination.
+- Require same-origin requests for state-changing API methods, JSON request bodies, and a strict request-size limit.
 - Do not expose student photos, private messages, guardian details, or records in public URLs.
 - Keep audit events for administrative changes. Restrict audit access and define retention.
 - Use least privilege, MFA at the identity provider, session revocation, and regular access reviews.
