@@ -22,16 +22,17 @@ The connected Zero Trust tenant is:
 
 `wandering-bar-0ae9.cloudflareaccess.com`
 
-This tenant domain is configured as `ACCESS_TEAM_DOMAIN` in Wrangler. The TrueOnly-specific Access application and its audience value are not yet configured.
+This tenant domain is configured as `ACCESS_TEAM_DOMAIN` in Wrangler. The dedicated TrueOnly Access application has been created for the expected hostname. It currently has **no allow policies and no identity providers selected**, so it is fail-closed: no one is authorized yet. Its audience value is connected in `wrangler.jsonc`.
 
 Before deployment:
 
-1. In Cloudflare Zero Trust, create a self-hosted Access application for `trueonly-student-finder.growref-admin.workers.dev`.
-2. Create an allow policy limited to verified school staff identities. Do not select Everyone or broadly allow all account users.
-3. Enable MFA where available and choose a reasonable session duration.
-4. Copy the application's AUD tag into `ACCESS_AUD` in `wrangler.jsonc`.
+1. Open the existing **TrueOnly Student Finder** self-hosted application in Cloudflare Zero Trust.
+2. Add an approved identity provider. The account's current Cloudflare IdP is restricted to account members; for school staff outside the Cloudflare account, configure One-time PIN or the school's approved identity provider.
+3. Create an allow policy limited to verified school staff identities. Do not select Everyone or broadly allow all account users.
+4. Enable MFA where available and choose a reasonable session duration.
 5. Confirm unauthenticated users are denied and only approved staff can sign in.
 6. Ensure each approved identity has an active administrator record in D1, scoped to the correct school.
+7. Only after reviewing the policy, change `ACCESS_POLICY_READY` to `true` in `wrangler.jsonc` to unlock the manual deployment workflow.
 
 The account's existing identity provider is restricted to Cloudflare account members. Do not assume that this automatically covers school staff; choose and test an identity method appropriate for the school before allowing access.
 
@@ -54,7 +55,7 @@ The workflow at `.github/workflows/deploy.yml` is triggered manually from GitHub
 5. Complete school authorization, safeguarding, privacy and independent security checks.
 6. Run the manual workflow only when the deployment is approved.
 
-No Worker has been deployed by this setup. The D1 database is currently empty and no real student data should be entered.
+No Worker has been deployed by this setup. The D1 database is currently empty and no real student data should be entered. The Access application is intentionally locked with no allow policy until the school supplies and approves its staff identity list.
 
 ## Important safeguards
 
