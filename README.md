@@ -1,6 +1,6 @@
 # TrueOnly Student Finder
 
-A privacy-first school directory and student-support platform built for Cloudflare Workers, D1 and R2.
+A privacy-first school directory and staff support workspace built for Cloudflare Workers, D1 and Durable Objects. Private R2 storage is reserved for a future attachment feature.
 
 ## Status
 
@@ -10,7 +10,7 @@ Initial implementation scaffold. Do not use with real student records until an a
 
 - Cloudflare Worker API and static frontend
 - Cloudflare D1 for relational records
-- Cloudflare R2 for private file objects (not publicly exposed)
+- Durable Objects for per-ticket real-time notifications\n- R2 attachments are not implemented or bound yet
 - Cloudflare Access for identity-gated access
 - GitHub for source control and CI
 
@@ -29,7 +29,7 @@ npm test
 5. Create an initial administrator record in D1 using the immutable identity subject from your Access identity provider. Assign only the minimum required role.
 6. Deploy the Worker and static assets using the current Cloudflare dashboard or the Cloudflare CLI workflow for your account.
 
-Never commit API tokens, Access secrets, student information, real student photos, or production database exports. Do not make the R2 bucket public.
+Never commit API tokens, Access secrets, student information, real student photos, or production database exports. Do not create public object URLs for future private attachments.
 
 ## Important
 
