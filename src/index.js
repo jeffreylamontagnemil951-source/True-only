@@ -3,7 +3,7 @@ const b64url=s=>Uint8Array.from(atob(s.replace(/-/g,"+").replace(/_/g,"/")+"=".r
 const now=()=>new Date().toISOString();
 const id=()=>crypto.randomUUID();
 const ROLE_PERMISSIONS={
-  super_admin:["students.read","students.create","students.update","students.archive","admins.read","admins.create","admins.update","badges.read","badges.manage","support.read","support.manage","audit.read"],
+  super_admin:["students.read","students.create","students.update","students.archive","admins.read","admins.create","admins.update","admins.permissions","badges.read","badges.manage","support.read","support.manage","audit.read"],
   admin:["students.read","students.create","students.update","students.archive","badges.read","badges.manage","support.read","support.manage"],
   viewer:["students.read","badges.read","support.read"],
   support:["support.read","support.manage"]
@@ -66,6 +66,12 @@ async function studentsApi(request,env,user,url){
     try{await env.DB.prepare("INSERT INTO students(student_id,school_id,first_name,last_name,grade,section,school_name,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,'active',?,?)").bind(student_id,user.school_id,first,last,grade,clean(b.section,40),clean(b.school_name,120),now(),now()).run()}catch{throw new HttpError("Could not create record. Check for a duplicate Student ID.",409)}
     await audit(env,user,"student.created","student",student_id);return json({ok:true,student_id},201);
   }
+  if(studentId&&method==="GET"){
+    await need(env,user,"students.read");
+    const student=await env.DB.prepare("SELECT student_id,first_name,last_name,grade,section,school_name,status,created_at,updated_at FROM students WHERE school_id=? AND student_id=?").bind(user.school_id,studentId).first();
+    if(!student)throw new HttpError("Student not found",404);
+    return json({item:student});
+  }
   if(studentId&&method==="PATCH"){
     const b=await bodyOf(request),allowed=["first_name","last_name","grade","section","school_name","status"];
     const updates=[];const args=[];
@@ -93,6 +99,36 @@ async function adminsApi(request,env,user,url){
     const newId=id();try{await env.DB.prepare("INSERT INTO administrators(id,access_sub,display_name,role,school_id,active,created_at) VALUES(?,?,?,?,?,1,?)").bind(newId,subject,name,role,user.school_id,now()).run()}catch{throw new HttpError("Could not add administrator; the Access identity may already be registered",409)}
     await audit(env,user,"admin.created","administrator",newId,{role});return json({ok:true,id:newId},201);
   }
+  if(target&&parts.length===4&&parts[3]==="permissions"&&request.method==="GET"){
+    await need(env,user,"admins.read");
+    if(user.role!=="super_admin")throw new HttpError("Only the Super Admin can view permission overrides",403);
+    const targetAdmin=await env.DB.prepare("SELECT id,role FROM administrators WHERE id=? AND school_id=?").bind(target,user.school_id).first();
+    if(!targetAdmin)throw new HttpError("Administrator not found",404);
+    const rows=await env.DB.prepare("SELECT permission,allowed FROM permission_overrides WHERE admin_id=? ORDER BY permission").bind(target).all();
+    return json({role:targetAdmin.role,permissions:rows.results||[],catalog:["students.read","students.create","students.update","students.archive","admins.read","admins.create","admins.update","badges.read","badges.manage","support.read","support.manage","audit.read"]});
+  }
+  if(target&&parts.length===4&&parts[3]==="permissions"&&(request.method==="PUT"||request.method==="PATCH")){
+    await need(env,user,"admins.permissions");
+    if(user.role!=="super_admin")throw new HttpError("Only the Super Admin can change permissions",403);
+    if(target===user.id)throw new HttpError("You cannot override your own permissions");
+    const targetAdmin=await env.DB.prepare("SELECT id,role FROM administrators WHERE id=? AND school_id=?").bind(target,user.school_id).first();
+    if(!targetAdmin)throw new HttpError("Administrator not found",404);
+    if(targetAdmin.role==="super_admin")throw new HttpError("Super Admin permissions cannot be overridden");
+    const b=await bodyOf(request),overrides=b.overrides;
+    const catalog=["students.read","students.create","students.update","students.archive","admins.read","admins.create","admins.update","badges.read","badges.manage","support.read","support.manage","audit.read"];
+    if(!overrides||typeof overrides!=="object"||Array.isArray(overrides))throw new HttpError("overrides must be an object");
+    const entries=Object.entries(overrides);
+    if(entries.some(([key,value])=>!catalog.includes(key)||!(typeof value==="boolean"||value===null)))throw new HttpError("Invalid permission override");
+    for(const [permission,allowed] of entries){
+      if(allowed===null){
+        await env.DB.prepare("DELETE FROM permission_overrides WHERE admin_id=? AND permission=?").bind(target,permission).run();
+      }else{
+        await env.DB.prepare("INSERT INTO permission_overrides(admin_id,permission,allowed,granted_by,created_at) VALUES(?,?,?,?,?) ON CONFLICT(admin_id,permission) DO UPDATE SET allowed=excluded.allowed,granted_by=excluded.granted_by,created_at=excluded.created_at").bind(target,permission,allowed?1:0,user.id,now()).run();
+      }
+    }
+    await audit(env,user,"admin.permissions.updated","administrator",target,{permissions:entries.map(([key,value])=>({permission:key,allowed:value}))});
+    return json({ok:true});
+  }
   if(request.method==="PATCH"&&target){
     await need(env,user,"admins.update");if(user.role!=="super_admin")throw new HttpError("Only the Super Admin can change administrator access",403);
     if(target===user.id)throw new HttpError("You cannot change your own administrator account");
@@ -118,9 +154,21 @@ async function badgesApi(request,env,user,url){
     await need(env,user,"badges.manage");const studentId=decodeURIComponent(parts[3]),b=await bodyOf(request),badgeId=clean(b.badge_id,80),reason=clean(b.reason,250);
     const badge=await env.DB.prepare("SELECT id FROM badges WHERE id=? AND school_id=?").bind(badgeId,user.school_id).first();if(!badge)throw new HttpError("Badge not found",404);
     const student=await env.DB.prepare("SELECT student_id FROM students WHERE student_id=? AND school_id=?").bind(studentId,user.school_id).first();if(!student)throw new HttpError("Student not found",404);
+    const duplicate=await env.DB.prepare("SELECT id FROM student_badges WHERE school_id=? AND student_id=? AND badge_id=? AND revoked_at IS NULL").bind(user.school_id,studentId,badgeId).first();
+    if(duplicate)throw new HttpError("This badge is already active for the student",409);
     const eventId=id();await env.DB.prepare("INSERT INTO student_badges(id,school_id,student_id,badge_id,issuer_admin_id,reason,issued_at) VALUES(?,?,?,?,?,?,?)").bind(eventId,user.school_id,studentId,badgeId,user.id,reason,now()).run();
     await env.DB.prepare("INSERT INTO badge_events(id,school_id,student_id,badge_id,action,actor_id,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(id(),user.school_id,studentId,badgeId,"issued",user.id,reason,now()).run();
     await audit(env,user,"badge.issued","student",studentId,{badge_id:badgeId});return json({ok:true,id:eventId},201);
+  }
+  if(request.method==="DELETE"&&parts.length===5&&parts[2]==="students"){
+    await need(env,user,"badges.manage");
+    const studentId=decodeURIComponent(parts[3]),assignmentId=decodeURIComponent(parts[4]);
+    const assignment=await env.DB.prepare("SELECT id,badge_id FROM student_badges WHERE id=? AND school_id=? AND student_id=? AND revoked_at IS NULL").bind(assignmentId,user.school_id,studentId).first();
+    if(!assignment)throw new HttpError("Active badge assignment not found",404);
+    await env.DB.prepare("UPDATE student_badges SET revoked_at=? WHERE id=? AND school_id=?").bind(now(),assignmentId,user.school_id).run();
+    await env.DB.prepare("INSERT INTO badge_events(id,school_id,student_id,badge_id,action,actor_id,reason,created_at) VALUES(?,?,?,?,?,?,?,?)").bind(id(),user.school_id,studentId,assignment.badge_id,"revoked",user.id,"Revoked by administrator",now()).run();
+    await audit(env,user,"badge.revoked","student",studentId,{assignment_id:assignmentId,badge_id:assignment.badge_id});
+    return json({ok:true});
   }
   if(request.method==="GET"&&parts.length===4&&parts[2]==="students"){
     await need(env,user,"badges.read");const studentId=decodeURIComponent(parts[3]);const rows=await env.DB.prepare("SELECT sb.id,sb.reason,sb.issued_at,sb.expires_at,b.name,b.description,b.color FROM student_badges sb JOIN badges b ON b.id=sb.badge_id WHERE sb.school_id=? AND sb.student_id=? AND sb.revoked_at IS NULL ORDER BY sb.issued_at DESC").bind(user.school_id,studentId).all();return json({items:rows.results||[]});

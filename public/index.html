@@ -1,37 +1,13 @@
 <!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#101b35">
-  <meta name="description" content="TrueOnly — a secure school community workspace">
-  <title>TrueOnly — Student Finder</title>
-  <link rel="stylesheet" href="/styles.css">
-  <script type="module" src="/app.js"></script>
-</head>
-<body>
-  <header class="topbar">
-    <a class="brand" href="/" aria-label="TrueOnly home"><span class="brand-mark">T</span><span>TrueOnly</span></a>
-    <div class="top-actions"><span class="secure"><i></i> Secure workspace</span><button id="refresh" class="icon-button" aria-label="Refresh">↻</button></div>
-  </header>
-  <main class="shell">
-    <section class="welcome">
-      <div><p class="eyebrow">SCHOOL COMMUNITY PLATFORM</p><h1>Student Finder</h1><p class="muted">Find and manage school records in one protected workspace.</p></div>
-      <div class="welcome-mark" aria-hidden="true">✦</div>
-    </section>
-    <section class="stats" aria-label="Student summary">
-      <article class="stat-card"><span class="stat-label">Total students</span><strong id="total">—</strong><span class="stat-note">Matching your access</span></article>
-      <article class="stat-card"><span class="stat-label">Active records</span><strong id="active">—</strong><span class="stat-note">Current enrollment</span></article>
-      <article class="stat-card"><span class="stat-label">Archived</span><strong id="archived">—</strong><span class="stat-note">Not in active directory</span></article>
-    </section>
-    <section class="panel">
-      <div class="panel-heading"><div><p class="eyebrow">DIRECTORY</p><h2>Students</h2></div><span id="role" class="role-chip">Checking access…</span></div>
-      <div class="toolbar"><label class="search"><span>⌕</span><input id="search" type="search" placeholder="Search student ID, name, grade…" autocomplete="off"></label><select id="status" aria-label="Filter by status"><option value="active">Active</option><option value="archived">Archived</option><option value="all">All records</option></select><button id="searchBtn" class="primary">Search</button></div>
-      <div id="notice" class="notice" role="status">Connecting securely…</div>
-      <div class="table-wrap"><table><thead><tr><th>Student</th><th>Student ID</th><th>Grade / Section</th><th>School</th><th>Status</th></tr></thead><tbody id="students"><tr><td colspan="5" class="empty">Loading records…</td></tr></tbody></table></div>
-      <div class="pagination"><span id="pageInfo">Page 1</span><div><button id="prev" class="secondary" disabled>Previous</button><button id="next" class="secondary" disabled>Next</button></div></div>
-    </section>
-    <footer><span>TrueOnly Student Finder</span><span>Privacy-first · School-authorized access only</span></footer>
-  </main>
-</body>
-</html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#101b35"><meta name="description" content="TrueOnly — a secure school community workspace"><title>TrueOnly — Student Finder</title><link rel="stylesheet" href="/styles.css"><script type="module" src="/app.js"></script></head>
+<body><header class="topbar"><a class="brand" href="/" aria-label="TrueOnly home"><span class="brand-mark">T</span><span>TrueOnly</span></a><div class="top-actions"><span class="secure"><i></i> Secure workspace</span><a class="secondary" href="/admin.html">Admin Console</a><button id="refresh" class="icon-button" aria-label="Refresh">↻</button></div></header>
+<main class="shell"><section class="welcome"><div><p class="eyebrow">SCHOOL COMMUNITY PLATFORM</p><h1>Student Finder</h1><p class="muted">Find and manage school records in one protected workspace.</p></div><div class="welcome-mark" aria-hidden="true">✦</div></section>
+<section class="stats" aria-label="Student summary"><article class="stat-card"><span class="stat-label">Total students</span><strong id="total">—</strong><span class="stat-note">Matching your access</span></article><article class="stat-card"><span class="stat-label">Active records</span><strong id="active">—</strong><span class="stat-note">Current enrollment</span></article><article class="stat-card"><span class="stat-label">Archived</span><strong id="archived">—</strong><span class="stat-note">Not in active directory</span></article></section>
+<section class="panel"><div class="panel-heading"><div><p class="eyebrow">DIRECTORY</p><h2>Students</h2></div><span id="role" class="role-chip">Checking access…</span></div>
+<div class="toolbar"><label class="search"><span>⌕</span><input id="search" type="search" placeholder="Search student ID, name, grade…" autocomplete="off"></label><select id="status" aria-label="Filter by status"><option value="active">Active</option><option value="archived">Archived</option><option value="all">All records</option></select><button id="searchBtn" class="primary">Search</button><button id="newStudent" class="primary" hidden>Add student</button></div>
+<div id="notice" class="notice" role="status">Connecting securely…</div>
+<div id="studentEditor" class="subpanel" hidden><div class="panel-heading"><h3 id="editorTitle">Add student</h3><button id="cancelEdit" class="secondary" type="button">Cancel</button></div><div class="form-grid"><label>Student ID<input id="fStudentId" maxlength="80" autocomplete="off"></label><label>First name<input id="fFirst" maxlength="80"></label><label>Last name<input id="fLast" maxlength="80"></label><label>Grade<input id="fGrade" maxlength="40"></label><label>Section<input id="fSection" maxlength="40"></label><label>School name<input id="fSchool" maxlength="120"></label></div><button id="saveStudent" class="primary" type="button">Save student</button></div>
+<div id="studentProfile" class="subpanel" hidden><div class="panel-heading"><h3 id="profileName">Student profile</h3><button id="closeProfile" class="secondary" type="button">Close</button></div><div id="profileDetails"></div><h3>Recognition badges</h3><div id="profileBadges" class="badge-list"></div><div id="badgeAssign" class="toolbar" hidden><select id="badgeChoice" aria-label="Choose badge"></select><input id="badgeReason" placeholder="Reason (optional)"><button id="assignBadge" class="primary" type="button">Assign badge</button></div></div>
+<div class="table-wrap"><table><thead><tr><th>Student</th><th>Student ID</th><th>Grade / Section</th><th>School</th><th>Status</th><th>Actions</th></tr></thead><tbody id="students"><tr><td colspan="6" class="empty">Loading records…</td></tr></tbody></table></div>
+<div class="pagination"><span id="pageInfo">Page 1</span><div><button id="prev" class="secondary" disabled>Previous</button><button id="next" class="secondary" disabled>Next</button></div></div></section>
+<footer><span>TrueOnly Student Finder</span><span>Privacy-first · School-authorized access only</span></footer></main></body></html>
