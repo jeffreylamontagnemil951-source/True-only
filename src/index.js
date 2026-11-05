@@ -78,7 +78,7 @@ async function studentsApi(request,env,user,url){
     for(const field of allowed)if(Object.hasOwn(b,field)){
       if(field==="status"){await need(env,user,"students.archive");if(!["active","archived"].includes(b[field]))throw new HttpError("Invalid status")}
       else await need(env,user,"students.update");
-      const max=field==="school_name"?120:80;const value=clean(b[field],max);if(!value)throw new HttpError("Invalid "+field);
+      const max=field==="school_name"?120:80;const value=clean(b[field],max);if(!value&&!["section","school_name"].includes(field))throw new HttpError("Invalid "+field);
       updates.push(field+"=?");args.push(value);
     }
     if(!updates.length)throw new HttpError("No supported fields supplied");
@@ -197,7 +197,7 @@ async function supportApi(request,env,user,url){
   throw new HttpError("Support route not found",404);
 }
 async function handleApi(request,env){
-  const url=new URL(request.url);if(url.pathname==="/api/health"&&request.method==="GET")return json({ok:true,service:"trueonly-api"});
+  const url=new URL(request.url);if(url.pathname==="/api/health"){if(request.method!=="GET")throw new HttpError("Method not allowed",405);return json({ok:true,service:"trueonly-api"});}
   if(!env.DB)throw new HttpError("D1 database binding DB is not configured",503);
   const user=await actorFor(request,env);
   if(url.pathname==="/api/me"&&request.method==="GET")return json({id:user.id,display_name:user.display_name,role:user.role,school_id:user.school_id});

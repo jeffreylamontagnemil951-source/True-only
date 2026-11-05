@@ -8,7 +8,7 @@ test("health endpoint responds without requiring a database",async()=>{
 });
 test("health endpoint rejects unsupported methods",async()=>{
   const response=await worker.fetch(new Request("https://example.test/api/health",{method:"POST"}),{});
-  assert.equal(response.status,401);
+  assert.equal(response.status,405);
 });
 test("unknown API route requires an authenticated school identity",async()=>{
   const response=await worker.fetch(new Request("https://example.test/api/not-real"),{DB:{}});
