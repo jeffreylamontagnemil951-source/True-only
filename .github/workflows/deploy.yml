@@ -1,0 +1,59 @@
+name: Manual Cloudflare deployment
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trueonly-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify deployment configuration
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const config = JSON.parse(fs.readFileSync('wrangler.jsonc', 'utf8'));
+          if (config.workers_dev !== true) throw new Error('workers.dev must be explicitly enabled');
+          if (!config.d1_databases?.some(db => db.binding === 'DB' && /^[0-9a-f-]{36}$/i.test(db.database_id))) {
+            throw new Error('A valid Cloudflare D1 database ID is required');
+          }
+          if (!config.vars?.ACCESS_TEAM_DOMAIN || config.vars.ACCESS_TEAM_DOMAIN.includes('REPLACE_WITH')) {
+            throw new Error('Set ACCESS_TEAM_DOMAIN before deployment');
+          }
+          if (!config.vars?.ACCESS_AUD || config.vars.ACCESS_AUD.includes('REPLACE_WITH')) {
+            throw new Error('Create the TrueOnly Access application and set ACCESS_AUD before deployment');
+          }
+          NODE
+          test -n "${CLOUDFLARE_API_TOKEN}"
+          test -n "${CLOUDFLARE_ACCOUNT_ID}"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Apply D1 migrations
+        run: npx --yes wrangler@4 d1 migrations apply trueonly-db --remote
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Deploy Worker and static assets
+        run: npx --yes wrangler@4 deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
