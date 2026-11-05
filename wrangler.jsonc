@@ -1,0 +1,11 @@
+{
+ "$schema":"node_modules/wrangler/config-schema.json",
+ "name":"trueonly-student-finder",
+ "main":"src/index.js",
+ "compatibility_date":"2026-11-05",
+ "assets":{"directory":"./public","binding":"ASSETS","run_worker_first":["/api/*"]},
+ "d1_databases":[{"binding":"DB","database_name":"trueonly-db","database_id":"REPLACE_WITH_D1_DATABASE_ID","migrations_dir":"migrations"}],
+ "durable_objects":{"bindings":[{"name":"SUPPORT_ROOMS","class_name":"SupportRoom"}]},
+ "exports":{"SupportRoom":{"type":"durable-object","storage":"sqlite"}},
+ "vars":{"ACCESS_TEAM_DOMAIN":"REPLACE_WITH_ACCESS_TEAM_DOMAIN","ACCESS_AUD":"REPLACE_WITH_ACCESS_AUDIENCE"}
+}

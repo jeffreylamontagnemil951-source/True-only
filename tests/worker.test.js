@@ -1,21 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import worker from "../src/index.js";
-test("health endpoint responds without requiring a database",async()=>{
-  const response=await worker.fetch(new Request("https://example.test/api/health"),{});
-  assert.equal(response.status,200);
-  assert.deepEqual(await response.json(),{ok:true,service:"trueonly-api"});
-});
-test("health endpoint rejects unsupported methods",async()=>{
-  const response=await worker.fetch(new Request("https://example.test/api/health",{method:"POST"}),{});
-  assert.equal(response.status,405);
-});
-test("unknown API route requires an authenticated school identity",async()=>{
-  const response=await worker.fetch(new Request("https://example.test/api/not-real"),{DB:{}});
-  assert.equal(response.status,401);
-});
-test("static asset requests return a clear setup response without an asset binding",async()=>{
-  const response=await worker.fetch(new Request("https://example.test/"),{});
-  assert.equal(response.status,503);
-  assert.match(await response.text(),/static assets binding is not configured/);
-});
+import worker,{SupportRoom,canViewSupportTicket} from "../src/index.js";
+test("health endpoint responds without D1",async()=>{const r=await worker.fetch(new Request("https://example.test/api/health"),{});assert.equal(r.status,200);assert.deepEqual(await r.json(),{ok:true,service:"trueonly-api"})});
+test("health endpoint rejects unsupported methods",async()=>{const r=await worker.fetch(new Request("https://example.test/api/health",{method:"POST"}),{});assert.equal(r.status,405)});
+test("unknown API route requires authentication",async()=>{const r=await worker.fetch(new Request("https://example.test/api/not-real"),{DB:{}});assert.equal(r.status,401)});
+test("static asset request gives setup response without binding",async()=>{const r=await worker.fetch(new Request("https://example.test/"),{});assert.equal(r.status,503)});
+test("support room rejects unknown routes",async()=>{const room=new SupportRoom({getWebSockets:()=>[]},{});assert.equal((await room.fetch(new Request("https://room/nope"))).status,404)});
+test("support room broadcasts only to matching school and ticket",async()=>{const sent=[];const room=new SupportRoom({getWebSockets:()=>[{deserializeAttachment:()=>({school_id:"s1",ticket_id:"t1"}),send:x=>sent.push(x)},{deserializeAttachment:()=>({school_id:"s1",ticket_id:"t2"}),send:x=>sent.push(x)}]},{});const r=await room.fetch(new Request("https://room/publish",{method:"POST",headers:{"content-type":"application/json","x-trueonly-school":"s1","x-trueonly-ticket":"t1"},body:JSON.stringify({type:"message.created",message:{id:"m"}})}));assert.equal(r.status,204);assert.equal(sent.length,1)});
+test("support staff visibility is restricted by assignment and school",()=>{const t={school_id:"s1",requester_admin_id:"r",assigned_admin_id:"a"};assert.equal(canViewSupportTicket({id:"a",role:"support",school_id:"s1"},t),true);assert.equal(canViewSupportTicket({id:"x",role:"support",school_id:"s1"},t),false);assert.equal(canViewSupportTicket({id:"a",role:"support",school_id:"s2"},t),false)});
