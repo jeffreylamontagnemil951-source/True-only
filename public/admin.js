@@ -1,10 +1,11 @@
-const $=id=>document.getElementById(id);let current="admins",myRole="",permissionTarget="",currentTicket="",supportSocket=null;
+const $=id=>document.getElementById(id);let current="admins",myRole="",permissionTarget="",currentTicket="",supportSocket=null,messageHasMore=false,messageCursor=null;
 const permissionLabels={"students.read":"View student records","students.create":"Create student records","students.update":"Edit student records","students.archive":"Archive and restore students","admins.read":"View administrators","admins.create":"Add administrators","admins.update":"Change administrator roles and status","badges.read":"View badges","badges.manage":"Create, assign and revoke badges","support.read":"View support tickets","support.manage":"Manage support tickets","support.moderate":"Review support reports","audit.read":"View audit history"};
 async function api(path,options={}){const r=await fetch(path,{...options,headers:{"content-type":"application/json",...(options.headers||{})},credentials:"same-origin"});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||"Request failed");return d}
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 function note(s,error=false){$("notice").textContent=s;$("notice").className="notice"+(error?" error":"")}
 function table(headers,rows){$("head").innerHTML="<tr>"+headers.map(h=>"<th>"+h+"</th>").join("")+"</tr>";$("rows").innerHTML=rows.length?rows.join(""):'<tr><td colspan="'+headers.length+'" class="empty">No records found.</td></tr>'}
 async function load(){
+ if(current!=="support")$("conversationPanel").hidden=true;
  try{
   const me=await api("/api/me");myRole=me.role;$("role").textContent=me.role.replaceAll("_"," ");$("adminActions").hidden=current!=="admins"||myRole!=="super_admin";$("badgeActions").hidden=current!=="badges";$("supportActions").hidden=current!=="support";$("createDepartment").hidden=!["super_admin","admin"].includes(myRole);$("reportsTab").hidden=!["super_admin","admin"].includes(myRole);
   $("permissionPanel").hidden=true;
@@ -17,14 +18,67 @@ async function load(){
  }catch(e){note(e.message,true);table(["Access"],["<tr><td class='empty'>This section is unavailable for your account.</td></tr>"])}
 }
 async function openPermissions(adminId){try{permissionTarget=adminId;const d=await api("/api/admins/"+encodeURIComponent(adminId)+"/permissions");$("permissionTitle").textContent="Custom permissions · "+adminId.slice(0,8);$("permissionList").innerHTML=d.catalog.map(key=>{const item=d.permissions.find(x=>x.permission===key);const value=item?(item.allowed?"allow":"deny"):"default";return "<label class='permission-item'><span>"+esc(permissionLabels[key]||key)+"<small>"+esc(key)+"</small></span><select data-permission='"+esc(key)+"'><option value='default' "+(value==="default"?"selected":"")+">Default</option><option value='allow' "+(value==="allow"?"selected":"")+">Allow</option><option value='deny' "+(value==="deny"?"selected":"")+">Deny</option></select></label>"}).join("");$("permissionPanel").hidden=false;note("Permission overrides loaded. Changes take effect after saving.")}catch(e){note(e.message,true)}}
-document.querySelectorAll("[data-tab]").forEach(b=>b.addEventListener("click",()=>{current=b.dataset.tab;$("sectionTitle").textContent=({admins:"Administrators",badges:"Badge management",support:"Support desk",audit:"Audit history",reports:"Message reports"})[current];document.querySelectorAll("[data-tab]").forEach(x=>x.classList.toggle("active",x===b));load()}));
+document.querySelectorAll("[data-tab]").forEach(b=>b.addEventListener("click",()=>{current=b.dataset.tab;if(current!=="support"){closeSupportSocket();currentTicket="";$("conversationPanel").hidden=true} $("sectionTitle").textContent=({admins:"Administrators",badges:"Badge management",support:"Support desk",audit:"Audit history",reports:"Message reports"})[current];document.querySelectorAll("[data-tab]").forEach(x=>x.classList.toggle("active",x===b));load()}));
 $("closePermissions").addEventListener("click",()=>$("permissionPanel").hidden=true);
 $("savePermissions").addEventListener("click",async()=>{try{const overrides={};$("permissionList").querySelectorAll("select").forEach(s=>overrides[s.dataset.permission]=s.value==="default"?null:s.value==="allow");await api("/api/admins/"+encodeURIComponent(permissionTarget)+"/permissions",{method:"PUT",body:JSON.stringify({overrides})});note("Custom permissions saved and audited.");$("permissionPanel").hidden=true}catch(e){note(e.message,true)}});
 $("addAdmin").addEventListener("click",async()=>{try{await api("/api/admins",{method:"POST",body:JSON.stringify({display_name:$("adminName").value,access_sub:$("accessSub").value,role:$("adminRole").value})});$("adminName").value=$("accessSub").value="";note("Administrator added. Configure their Cloudflare Access policy before sign-in.");load()}catch(e){note(e.message,true)}});
 $("addBadge").addEventListener("click",async()=>{try{await api("/api/badges",{method:"POST",body:JSON.stringify({name:$("badgeName").value,description:$("badgeDescription").value,color:$("badgeColor").value})});$("badgeName").value=$("badgeDescription").value="";note("Badge created.");load()}catch(e){note(e.message,true)}});
 $("addTicket").addEventListener("click",async()=>{try{await api("/api/support",{method:"POST",body:JSON.stringify({subject:$("ticketSubject").value,category:$("ticketCategory").value,description:$("ticketDescription").value,department_id:$("ticketDepartment").value||null,requester_type:"school_staff"})});$("ticketSubject").value=$("ticketCategory").value=$("ticketDescription").value="";note("Support ticket created.");load()}catch(e){note(e.message,true)}});
-async function openTicket(tid,connect=true){try{if(currentTicket!==tid&&supportSocket){supportSocket.close();supportSocket=null}currentTicket=tid;const d=await api("/api/support/"+encodeURIComponent(tid)),t=d.ticket;$("conversationTitle").textContent=t.subject;$("conversationMeta").textContent=[t.department_name||"No department",t.category,t.status,t.priority].join(" · ");$("conversationPanel").hidden=false;$("conversationPanel").dataset.ticket=tid;$("conversationMessages").innerHTML=d.messages.map(m=>"<article class='chat-message'><div><strong>"+esc(m.sender_name||"Staff account")+"</strong><time>"+esc(m.created_at)+"</time></div><p>"+esc(m.body)+"</p><button class='secondary' data-report-message='"+esc(m.id)+"'>Report message</button></article>").join("")||'<p class="muted">No messages yet.</p>';$("conversationMessages").scrollTop=$("conversationMessages").scrollHeight;$("conversationStatus").value=t.status;$("conversationPriority").value=t.priority;$("conversationDepartment").innerHTML='<option value="">No department</option>'+(await api("/api/support/departments")).items.map(x=>"<option value='"+esc(x.id)+"' "+(x.id===t.department_id?"selected":"")+">"+esc(x.name)+"</option>").join("");$("conversationDepartment").disabled=myRole==="support";$("sendReply").hidden=myRole==="viewer";$("saveTicketChanges").hidden=myRole==="viewer";if(myRole!=="support"){try{const a=await api("/api/admins");$("conversationAssignee").innerHTML='<option value="">Unassigned</option>'+a.items.filter(x=>x.active).map(x=>"<option value='"+esc(x.id)+"' "+(x.id===t.assigned_admin_id?"selected":"")+">"+esc(x.display_name)+"</option>").join("")}catch{$("conversationAssignee").innerHTML='<option value="">Assignment unavailable</option>'}$("conversationAssignee").disabled=false}else{$("conversationAssignee").innerHTML='<option value="">Assigned to you</option>';$("conversationAssignee").disabled=true}if(connect&&(!supportSocket||supportSocket.readyState>1)){supportSocket=new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.host+"/api/support/"+encodeURIComponent(tid)+"/live");supportSocket.onmessage=()=>openTicket(tid,false)}note("Conversation loaded.")}catch(e){note(e.message,true)}}
-$("conversationRefresh").addEventListener("click",()=>openTicket($("conversationPanel").dataset.ticket,false));
+function closeSupportSocket(){if(supportSocket){try{supportSocket.close(1000,"Support view closed")}catch{}supportSocket=null}}
+function renderSupportMessage(m){return "<article class='chat-message'><div><strong>"+esc(m.sender_name||"Staff account")+"</strong><time>"+esc(m.created_at)+"</time></div><p>"+esc(m.body)+"</p><button class='secondary' data-report-message='"+esc(m.id)+"'>Report message</button></article>"}
+async function openTicket(tid,connect=true){
+ try{
+  if(currentTicket!==tid){closeSupportSocket();messageHasMore=false;messageCursor=null}
+  currentTicket=tid;
+  const d=await api("/api/support/"+encodeURIComponent(tid));
+  if(currentTicket!==tid)return;
+  const t=d.ticket;
+  $("conversationTitle").textContent=t.subject;
+  $("conversationMeta").textContent=[t.department_name||"No department",t.category,t.status,t.priority].join(" · ");
+  $("conversationPanel").hidden=false;$("conversationPanel").dataset.ticket=tid;
+  messageHasMore=!!d.has_more;messageCursor=d.next_before||null;$("loadOlderMessages").hidden=!messageHasMore;
+  $("conversationMessages").innerHTML=d.messages.map(renderSupportMessage).join("")||'<p class="muted">No messages yet.</p>';
+  $("conversationMessages").scrollTop=$("conversationMessages").scrollHeight;
+  $("conversationStatus").value=t.status;$("conversationPriority").value=t.priority;
+  const dep=await api("/api/support/departments");if(currentTicket!==tid)return;
+  $("conversationDepartment").innerHTML='<option value="">No department</option>'+dep.items.map(x=>"<option value='"+esc(x.id)+"' "+(x.id===t.department_id?"selected":"")+">"+esc(x.name)+"</option>").join("");
+  $("conversationDepartment").disabled=myRole==="support";
+  $("sendReply").hidden=myRole==="viewer";$("saveTicketChanges").hidden=myRole==="viewer";
+  if(myRole!=="support"){
+   try{const a=await api("/api/admins");if(currentTicket!==tid)return;$("conversationAssignee").innerHTML='<option value="">Unassigned</option>'+a.items.filter(x=>x.active).map(x=>"<option value='"+esc(x.id)+"' "+(x.id===t.assigned_admin_id?"selected":"")+">"+esc(x.display_name)+"</option>").join("")}
+   catch{$("conversationAssignee").innerHTML='<option value="">Assignment unavailable</option>'}
+   $("conversationAssignee").disabled=false;
+  }else{$("conversationAssignee").innerHTML='<option value="">Assigned to you</option>';$("conversationAssignee").disabled=true}
+  if(connect&&(!supportSocket||supportSocket.readyState>1)){
+   const socket=new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.host+"/api/support/"+encodeURIComponent(tid)+"/live");
+   supportSocket=socket;
+   socket.addEventListener("message",event=>{
+    if(currentTicket!==tid||supportSocket!==socket)return;
+    let update;try{update=JSON.parse(event.data)}catch{return}
+    if(update.type==="message.created"&&update.message?.id)openTicket(tid,false);
+   });
+   socket.addEventListener("close",()=>{if(supportSocket===socket)supportSocket=null});
+   socket.addEventListener("error",()=>{if(supportSocket===socket)note("Live updates are unavailable. Use Refresh to check for new messages.",true)});
+  }
+  note("Conversation loaded.");
+ }catch(e){note(e.message,true)}
+}
+$("conversationRefresh").addEventListener("click",()=>openTicket($("conversationPanel").dataset.ticket,true));
+$("loadOlderMessages").addEventListener("click",async()=>{
+ const tid=currentTicket,cursor=messageCursor,button=$("loadOlderMessages"),container=$("conversationMessages");
+ if(!tid||!cursor||button.disabled)return;
+ button.disabled=true;
+ const oldHeight=container.scrollHeight,oldTop=container.scrollTop;
+ try{
+  const d=await api("/api/support/"+encodeURIComponent(tid)+"?before="+encodeURIComponent(cursor)+"&limit=50");
+  if(currentTicket!==tid)return;
+  container.insertAdjacentHTML("afterbegin",d.messages.map(renderSupportMessage).join(""));
+  container.scrollTop=oldTop+(container.scrollHeight-oldHeight);
+  messageHasMore=!!d.has_more;messageCursor=d.next_before||null;button.hidden=!messageHasMore;
+ }catch(e){note(e.message,true)}
+ finally{button.disabled=false}
+});
+
 $("sendReply").addEventListener("click",async()=>{const tid=$("conversationPanel").dataset.ticket,body=$("replyBody").value.trim();if(!body)return;try{await api("/api/support/"+encodeURIComponent(tid)+"/messages",{method:"POST",body:JSON.stringify({body})});$("replyBody").value="";await openTicket(tid,false);note("Message sent.")}catch(e){note(e.message,true)}});
 $("saveTicketChanges").addEventListener("click",async()=>{const tid=$("conversationPanel").dataset.ticket,p={status:$("conversationStatus").value,priority:$("conversationPriority").value};if(myRole!=="support"){p.department_id=$("conversationDepartment").value||null;p.assigned_admin_id=$("conversationAssignee").value||null}try{await api("/api/support/"+encodeURIComponent(tid),{method:"PATCH",body:JSON.stringify(p)});await openTicket(tid,false);load();note("Ticket updated.")}catch(e){note(e.message,true)}});
 $("createDepartment").addEventListener("click",async()=>{try{await api("/api/support/departments",{method:"POST",body:JSON.stringify({name:$("departmentName").value})});$("departmentName").value="";load();note("Department created.")}catch(e){note(e.message,true)}});

@@ -12,3 +12,7 @@
 - Student-to-student direct messaging is intentionally not implemented. Any future communication feature requires school policy, moderation, reporting, retention and safeguarding review.
 - No system is impossible to bypass. Perform independent security testing before real-world use.
 - Do not store real student data in development, screenshots, test fixtures, or Git history.
+
+- Support message history is paginated with ticket-bound cursors. Live WebSocket events contain identifiers only; the Durable Object rechecks active identity, school scope, ticket assignment/requester access, and the effective `support.read` override before each notification.
+- D1 integrity triggers reject cross-school support requester, assignee, department, message-sender, and report relationships even if a future Worker route is implemented incorrectly.
+- Support tickets are staff-only. Student/guardian requester labels are not student accounts or a student messaging feature. Keep sensitive details out of tickets and define an approved retention/deletion schedule before launch.

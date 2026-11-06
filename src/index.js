@@ -188,6 +188,25 @@ async function badgesApi(request,env,user,url){
   throw new HttpError("Badge route not found",404);
 }
 export function canViewSupportTicket(u,t){return u.school_id===t.school_id&&(["super_admin","admin"].includes(u.role)||t.requester_admin_id===u.id||t.assigned_admin_id===u.id)}
+export function supportMessageLimit(value){
+ const n=value===null||value===undefined||value===""?50:Number(value);
+ return Number.isInteger(n)?Math.max(1,Math.min(50,n)):50;
+}
+export function pageSupportMessages(rows,limit){
+ const hasMore=rows.length>limit,messages=rows.slice(0,limit).reverse();
+ return {messages,has_more:hasMore,next_before:hasMore?(messages[0]?.id||null):null};
+}
+function supportDb(env){const db=env.DB;return db&&typeof db.withSession==="function"?db.withSession("first-primary"):db}
+export async function supportViewerAllowed(env,schoolId,ticketId,adminId){
+ if(!env.DB)return false;
+ const row=await supportDb(env).prepare("SELECT a.id FROM administrators a JOIN support_tickets t ON t.id=? AND t.school_id=? LEFT JOIN permission_overrides po ON po.admin_id=a.id AND po.permission='support.read' WHERE a.id=? AND a.school_id=t.school_id AND a.active=1 AND a.role IN ('super_admin','admin','viewer','support') AND COALESCE(po.allowed,1)=1 AND (a.role IN ('super_admin','admin') OR t.requester_admin_id=a.id OR t.assigned_admin_id=a.id) LIMIT 1").bind(ticketId,schoolId,adminId).first();
+ return !!row;
+}
+async function authorizedSupportViewers(env,schoolId,ticketId){
+ if(!env.DB)return new Set();
+ const rows=await supportDb(env).prepare("SELECT a.id FROM administrators a JOIN support_tickets t ON t.id=? AND t.school_id=? LEFT JOIN permission_overrides po ON po.admin_id=a.id AND po.permission='support.read' WHERE a.school_id=t.school_id AND a.active=1 AND a.role IN ('super_admin','admin','viewer','support') AND COALESCE(po.allowed,1)=1 AND (a.role IN ('super_admin','admin') OR t.requester_admin_id=a.id OR t.assigned_admin_id=a.id)").bind(ticketId,schoolId).all();
+ return new Set((rows.results||[]).map(row=>row.id));
+}
 async function supportApi(request,env,user,url){
  const p=url.pathname.split("/").filter(Boolean),tid=p[2]||null,sub=p[3]||null,lead=["super_admin","admin"].includes(user.role);
  const ticket=async()=>{const t=await env.DB.prepare("SELECT t.*,d.name AS department_name,a.display_name AS assignee_name FROM support_tickets t LEFT JOIN support_departments d ON d.id=t.department_id AND d.school_id=t.school_id LEFT JOIN administrators a ON a.id=t.assigned_admin_id AND a.school_id=t.school_id WHERE t.id=? AND t.school_id=?").bind(tid,user.school_id).first();if(!t||!canViewSupportTicket(user,t))throw new HttpError("Ticket not found",404);return t};
@@ -200,11 +219,23 @@ async function supportApi(request,env,user,url){
  if(request.method==="GET"&&!tid){await need(env,user,"support.read");const scope=lead?"t.school_id=?":"t.school_id=? AND (t.requester_admin_id=? OR t.assigned_admin_id=?)",args=lead?[user.school_id]:[user.school_id,user.id,user.id];const r=await env.DB.prepare("SELECT t.id,t.category,t.subject,t.status,t.priority,t.department_id,d.name AS department_name,t.assigned_admin_id,a.display_name AS assignee_name,t.created_at,t.updated_at FROM support_tickets t LEFT JOIN support_departments d ON d.id=t.department_id AND d.school_id=t.school_id LEFT JOIN administrators a ON a.id=t.assigned_admin_id AND a.school_id=t.school_id WHERE "+scope+" ORDER BY t.updated_at DESC LIMIT 100").bind(...args).all();return json({items:r.results||[]})}
  if(request.method==="POST"&&!tid){await need(env,user,"support.manage");const b=await bodyOf(request),subject=clean(b.subject,120),category=clean(b.category,40),desc=clean(b.description,3000),dept=clean(b.department_id,80)||null,requester=clean(b.requester_type,30)||"school_staff";if(!subject||!category||!desc||!["student","parent_guardian","teacher","administrator","school","technical_support","school_staff"].includes(requester))throw new HttpError("Subject, category, requester type and description are required");if(dept&&!await env.DB.prepare("SELECT id FROM support_departments WHERE id=? AND school_id=? AND active=1").bind(dept,user.school_id).first())throw new HttpError("Department not found",404);const idv=id(),ts=now();await env.DB.prepare("INSERT INTO support_tickets(id,school_id,requester_admin_id,category,subject,status,priority,created_at,updated_at,requester_type,description,department_id) VALUES(?,?,?,?,?,'open','normal',?,?,?,?,?)").bind(idv,user.school_id,user.id,category,subject,ts,ts,requester,desc,dept).run();await env.DB.prepare("INSERT INTO support_messages(id,ticket_id,sender_admin_id,body,created_at) VALUES(?,?,?,?,?)").bind(id(),idv,user.id,desc,ts).run();await audit(env,user,"support.ticket.created","support_ticket",idv,{department_id:dept});return json({ok:true,id:idv},201)}
  if(!tid)throw new HttpError("Support route not found",404);
- if(p.length===3&&request.method==="GET"){await need(env,user,"support.read");const t=await ticket(),m=await env.DB.prepare("SELECT m.id,m.body,m.created_at,m.sender_admin_id,a.display_name AS sender_name FROM support_messages m LEFT JOIN administrators a ON a.id=m.sender_admin_id WHERE m.ticket_id=? ORDER BY m.created_at LIMIT 300").bind(tid).all();return json({ticket:t,messages:m.results||[]})}
+ if(p.length===3&&request.method==="GET"){
+  await need(env,user,"support.read");const t=await ticket(),limit=supportMessageLimit(url.searchParams.get("limit")),before=clean(url.searchParams.get("before"),80);
+  const select="SELECT m.id,m.body,m.created_at,m.sender_admin_id,a.display_name AS sender_name FROM support_messages m LEFT JOIN administrators a ON a.id=m.sender_admin_id ";
+  let rows;
+  if(before){
+   const cursor=await env.DB.prepare("SELECT created_at,id FROM support_messages WHERE id=? AND ticket_id=?").bind(before,tid).first();
+   if(!cursor)throw new HttpError("Invalid message history cursor",400);
+   rows=await env.DB.prepare(select+"WHERE m.ticket_id=? AND (m.created_at<? OR (m.created_at=? AND m.id<?)) ORDER BY m.created_at DESC,m.id DESC LIMIT ?").bind(tid,cursor.created_at,cursor.created_at,cursor.id,limit+1).all();
+  }else{
+   rows=await env.DB.prepare(select+"WHERE m.ticket_id=? ORDER BY m.created_at DESC,m.id DESC LIMIT ?").bind(tid,limit+1).all();
+  }
+  return json({ticket:t,...pageSupportMessages(rows.results||[],limit)});
+ }
  if(p.length===4&&sub==="live"&&request.method==="GET"){await need(env,user,"support.read");await ticket();if(request.headers.get("Upgrade")?.toLowerCase()!=="websocket")throw new HttpError("WebSocket upgrade required",426);if(!env.SUPPORT_ROOMS)throw new HttpError("SUPPORT_ROOMS binding is not configured",503);const stub=env.SUPPORT_ROOMS.get(env.SUPPORT_ROOMS.idFromName(user.school_id+":"+tid)),h=new Headers(request.headers);h.set("x-trueonly-school",user.school_id);h.set("x-trueonly-ticket",tid);h.set("x-trueonly-admin",user.id);return stub.fetch(new Request(request,{headers:h}))}
- if(p.length===4&&sub==="messages"&&request.method==="POST"){await need(env,user,"support.manage");const t=await ticket();if(t.status==="closed")throw new HttpError("Ticket is closed",409);const b=await bodyOf(request),body=typeof b.body==="string"?b.body.trim():"";if(!body||body.length>4000)throw new HttpError("Message must be 1-4000 characters");const mid=id(),ts=now();await env.DB.prepare("INSERT INTO support_messages(id,ticket_id,sender_admin_id,body,created_at) VALUES(?,?,?,?,?)").bind(mid,tid,user.id,body,ts).run();await env.DB.prepare("UPDATE support_tickets SET updated_at=?,status=CASE WHEN status='resolved' THEN 'in_progress' ELSE status END WHERE id=? AND school_id=?").bind(ts,tid,user.school_id).run();await audit(env,user,"support.message.created","support_ticket",tid,{message_id:mid});if(env.SUPPORT_ROOMS){try{const room=env.SUPPORT_ROOMS.get(env.SUPPORT_ROOMS.idFromName(user.school_id+":"+tid));await room.fetch(new Request("https://room/publish",{method:"POST",headers:{"content-type":"application/json","x-trueonly-school":user.school_id,"x-trueonly-ticket":tid},body:JSON.stringify({type:"message.created",message:{id:mid,sender_name:user.display_name,created_at:ts}})}))}catch{}}return json({ok:true,id:mid},201)}
+ if(p.length===4&&sub==="messages"&&request.method==="POST"){await need(env,user,"support.read");await need(env,user,"support.manage");const t=await ticket();if(t.status==="closed")throw new HttpError("Ticket is closed",409);const b=await bodyOf(request),body=typeof b.body==="string"?b.body.trim():"";if(!body||body.length>4000)throw new HttpError("Message must be 1-4000 characters");const mid=id(),ts=now();await env.DB.prepare("INSERT INTO support_messages(id,ticket_id,sender_admin_id,body,created_at) VALUES(?,?,?,?,?)").bind(mid,tid,user.id,body,ts).run();await env.DB.prepare("UPDATE support_tickets SET updated_at=?,status=CASE WHEN status='resolved' THEN 'in_progress' ELSE status END WHERE id=? AND school_id=?").bind(ts,tid,user.school_id).run();await audit(env,user,"support.message.created","support_ticket",tid,{message_id:mid});if(env.SUPPORT_ROOMS){try{const room=env.SUPPORT_ROOMS.get(env.SUPPORT_ROOMS.idFromName(user.school_id+":"+tid));await room.fetch(new Request("https://room/publish",{method:"POST",headers:{"content-type":"application/json","x-trueonly-school":user.school_id,"x-trueonly-ticket":tid},body:JSON.stringify({type:"message.created",message:{id:mid}})}))}catch{}}return json({ok:true,id:mid},201)}
  if(p.length===4&&sub==="reports"&&request.method==="POST"){await need(env,user,"support.read");await ticket();const b=await bodyOf(request),mid=clean(b.message_id,80),reason=clean(b.reason,500);if(!mid||!reason)throw new HttpError("Message ID and reason required");if(!await env.DB.prepare("SELECT id FROM support_messages WHERE id=? AND ticket_id=?").bind(mid,tid).first())throw new HttpError("Message not found",404);const rid=id();await env.DB.prepare("INSERT INTO support_reports(id,school_id,ticket_id,message_id,reporter_admin_id,reason,created_at) VALUES(?,?,?,?,?,?,?)").bind(rid,user.school_id,tid,mid,user.id,reason,now()).run();await audit(env,user,"support.message.reported","support_message",mid,{report_id:rid});return json({ok:true,id:rid},201)}
- if(request.method==="PATCH"&&p.length===3){await need(env,user,"support.manage");await ticket();const b=await bodyOf(request),u=[],a=[];if(Object.hasOwn(b,"status")){if(!["open","in_progress","waiting","resolved","closed"].includes(b.status))throw new HttpError("Invalid status");u.push("status=?");a.push(b.status)}if(Object.hasOwn(b,"priority")){if(!["low","normal","high","urgent"].includes(b.priority))throw new HttpError("Invalid priority");u.push("priority=?");a.push(b.priority)}if(Object.hasOwn(b,"assigned_admin_id")||Object.hasOwn(b,"department_id")){if(!lead)throw new HttpError("Only administrators can reassign",403);if(Object.hasOwn(b,"assigned_admin_id")){const x=clean(b.assigned_admin_id,80);if(x&&!await env.DB.prepare("SELECT id FROM administrators WHERE id=? AND school_id=? AND active=1 AND role IN ('super_admin','admin','support')").bind(x,user.school_id).first())throw new HttpError("Assignee not found",404);u.push("assigned_admin_id=?");a.push(x||null)}if(Object.hasOwn(b,"department_id")){const x=clean(b.department_id,80);if(x&&!await env.DB.prepare("SELECT id FROM support_departments WHERE id=? AND school_id=? AND active=1").bind(x,user.school_id).first())throw new HttpError("Department not found",404);u.push("department_id=?");a.push(x||null)}}if(!u.length)throw new HttpError("No changes supplied");u.push("updated_at=?");a.push(now(),user.school_id,tid);const r=await env.DB.prepare("UPDATE support_tickets SET "+u.join(",")+" WHERE school_id=? AND id=?").bind(...a).run();if(!r.meta?.changes)throw new HttpError("Ticket not found",404);await audit(env,user,"support.ticket.updated","support_ticket",tid,{status:b.status,priority:b.priority,assigned_admin_id:b.assigned_admin_id,department_id:b.department_id});return json({ok:true})}
+ if(request.method==="PATCH"&&p.length===3){await need(env,user,"support.read");await need(env,user,"support.manage");await ticket();const b=await bodyOf(request),u=[],a=[];if(Object.hasOwn(b,"status")){if(!["open","in_progress","waiting","resolved","closed"].includes(b.status))throw new HttpError("Invalid status");u.push("status=?");a.push(b.status)}if(Object.hasOwn(b,"priority")){if(!["low","normal","high","urgent"].includes(b.priority))throw new HttpError("Invalid priority");u.push("priority=?");a.push(b.priority)}if(Object.hasOwn(b,"assigned_admin_id")||Object.hasOwn(b,"department_id")){if(!lead)throw new HttpError("Only administrators can reassign",403);if(Object.hasOwn(b,"assigned_admin_id")){const x=clean(b.assigned_admin_id,80);if(x&&!await env.DB.prepare("SELECT id FROM administrators WHERE id=? AND school_id=? AND active=1 AND role IN ('super_admin','admin','support')").bind(x,user.school_id).first())throw new HttpError("Assignee not found",404);u.push("assigned_admin_id=?");a.push(x||null)}if(Object.hasOwn(b,"department_id")){const x=clean(b.department_id,80);if(x&&!await env.DB.prepare("SELECT id FROM support_departments WHERE id=? AND school_id=? AND active=1").bind(x,user.school_id).first())throw new HttpError("Department not found",404);u.push("department_id=?");a.push(x||null)}}if(!u.length)throw new HttpError("No changes supplied");u.push("updated_at=?");a.push(now(),user.school_id,tid);const r=await env.DB.prepare("UPDATE support_tickets SET "+u.join(",")+" WHERE school_id=? AND id=?").bind(...a).run();if(!r.meta?.changes)throw new HttpError("Ticket not found",404);await audit(env,user,"support.ticket.updated","support_ticket",tid,{status:b.status,priority:b.priority,assigned_admin_id:b.assigned_admin_id,department_id:b.department_id});return json({ok:true})}
  throw new HttpError("Support route not found",404);
 }
 async function handleApi(request,env){
@@ -225,10 +256,40 @@ async function handleApi(request,env){
 }
 export class SupportRoom{
  constructor(ctx,env){this.ctx=ctx;this.env=env}
- async fetch(request){const u=new URL(request.url);
-  if(u.pathname==="/publish"&&request.method==="POST"){const school=request.headers.get("x-trueonly-school"),ticket=request.headers.get("x-trueonly-ticket");if(!school||!ticket)return json({error:"Invalid room scope"},400);const event=await request.json().catch(()=>null);if(!event||event.type!=="message.created"||!event.message?.id)return json({error:"Invalid event"},400);const payload=JSON.stringify({type:"message.created",message:event.message});for(const ws of this.ctx.getWebSockets()){const a=ws.deserializeAttachment();if(a?.school_id===school&&a?.ticket_id===ticket){try{ws.send(payload)}catch{}}}return new Response(null,{status:204})}
-  if((u.pathname==="/connect"||u.pathname.endsWith("/live"))&&request.method==="GET"){if(request.headers.get("Upgrade")?.toLowerCase()!=="websocket")return new Response("Upgrade required",{status:426});const school=request.headers.get("x-trueonly-school"),ticket=request.headers.get("x-trueonly-ticket"),admin=request.headers.get("x-trueonly-admin");if(!school||!ticket||!admin)return new Response("Invalid room scope",{status:400});const pair=new WebSocketPair(),client=pair[0],server=pair[1];this.ctx.acceptWebSocket(server);server.serializeAttachment({school_id:school,ticket_id:ticket,admin_id:admin});return new Response(null,{status:101,webSocket:client})}
-  return new Response("Not found",{status:404})}
+ async fetch(request){
+  const url=new URL(request.url);
+  if(url.pathname==="/publish"){
+   if(request.method!=="POST")return new Response("Method not allowed",{status:405});
+   const school=request.headers.get("x-trueonly-school"),ticket=request.headers.get("x-trueonly-ticket");
+   if(!school||!ticket)return json({error:"Invalid room scope"},400);
+   if(!this.env.DB)return json({error:"D1 binding is unavailable"},503);
+   const event=await request.json().catch(()=>null),messageId=typeof event?.message?.id==="string"?event.message.id:"";
+   if(event?.type!=="message.created"||!messageId||messageId.length>80)return json({error:"Invalid event"},400);
+   const exists=await supportDb(this.env).prepare("SELECT m.id FROM support_messages m JOIN support_tickets t ON t.id=m.ticket_id WHERE m.id=? AND m.ticket_id=? AND t.school_id=?").bind(messageId,ticket,school).first();
+   if(!exists)return new Response("Message not found",{status:404});
+   const sockets=this.ctx.getWebSockets().filter(ws=>{const a=ws.deserializeAttachment();return a?.school_id===school&&a?.ticket_id===ticket});
+   const allowed=await authorizedSupportViewers(this.env,school,ticket);
+   const payload=JSON.stringify({type:"message.created",message:{id:messageId}});
+   for(const ws of sockets){
+    const a=ws.deserializeAttachment();
+    if(!allowed.has(a?.admin_id)){try{ws.close(1008,"Authorization changed")}catch{};continue}
+    try{ws.send(payload)}catch{}
+   }
+   return new Response(null,{status:204});
+  }
+  if(url.pathname==="/connect"||url.pathname.endsWith("/live")){
+   if(request.method!=="GET")return new Response("Method not allowed",{status:405});
+   if(request.headers.get("Upgrade")?.toLowerCase()!=="websocket")return new Response("Upgrade required",{status:426});
+   const school=request.headers.get("x-trueonly-school"),ticket=request.headers.get("x-trueonly-ticket"),admin=request.headers.get("x-trueonly-admin");
+   if(!school||!ticket||!admin)return new Response("Invalid room scope",{status:400});
+   if(!this.env.DB)return new Response("D1 binding is unavailable",{status:503});
+   if(!await supportViewerAllowed(this.env,school,ticket,admin))return new Response("Support access is no longer authorized",{status:403});
+   const pair=new WebSocketPair(),client=pair[0],server=pair[1];
+   this.ctx.acceptWebSocket(server);server.serializeAttachment({school_id:school,ticket_id:ticket,admin_id:admin});
+   return new Response(null,{status:101,webSocket:client});
+  }
+  return new Response("Not found",{status:404});
+ }
  async webSocketMessage(ws,message){try{ws.send(JSON.stringify({type:"error",code:"send_messages_over_api"}))}catch{}}
  async webSocketClose(ws,code,reason,clean){}
 }

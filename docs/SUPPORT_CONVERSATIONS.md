@@ -13,3 +13,12 @@ Student and guardian requester categories are metadata labels, not separate logi
 3. Configure DB, ASSETS and SUPPORT_ROOMS as declared in Wrangler.
 4. Configure Cloudflare Access and authorized administrator records.
 5. Complete the security review before deployment. This change does not deploy or provision resources.
+
+## Message history and live delivery
+
+- The conversation endpoint returns the newest 50 messages by default. Older messages are loaded in bounded pages using a ticket-bound cursor ordered by `created_at` and `id`; a cursor from another ticket is rejected.
+- WebSockets carry message-created notifications containing only the message ID. Message text is always fetched through the authenticated, school-scoped Worker API.
+- The Durable Object checks that the message exists in the same school and ticket. Before each broadcast it rechecks each connected administrator's active status, school, current requester/assignee/lead access, and `support.read` permission override. Stale sockets are closed.
+- D1 triggers provide defense-in-depth against cross-school requester, assignee, department, sender, and report references.
+
+No student or guardian self-service identity flow exists: requester categories are staff-entered metadata only. Do not put student names, contact details, health information, passwords, or other unnecessary sensitive details in support tickets. Attachments and student-to-student messages remain disabled; no R2 bucket is required.
